@@ -34,7 +34,7 @@ export async function initializeServerWallet(): Promise<string> {
       // Try to load existing wallet by name
       const smartAccount = await cdp.evm.getSmartAccount({
         name: SERVER_WALLET_NAME
-      });
+      } as any); // Cast to any to bypass incorrect TS types
 
       console.log('✅ [SERVER WALLET] Found existing wallet:', smartAccount.address);
       console.log('📛 [SERVER WALLET] Wallet name:', SERVER_WALLET_NAME);
@@ -110,7 +110,7 @@ export async function loadServerWallet(): Promise<any> {
     // Fetch the existing smart account by name
     const smartAccount = await cdp.evm.getSmartAccount({
       name: SERVER_WALLET_NAME
-    });
+    } as any); // Cast to any to bypass incorrect TS types
 
     console.log('✅ [SERVER WALLET] Wallet loaded successfully:', smartAccount.address);
 

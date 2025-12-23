@@ -126,8 +126,7 @@ async function getValidSpendPermission(userAddress: string): Promise<any | null>
 
   // List all spend permissions on user's wallet
   const allPermissions = await cdp.evm.listSpendPermissions({
-    address: userAddress,
-    network: 'base'
+    address: userAddress as `0x${string}`
   });
 
   console.log('📋 [SWEEP] Found', allPermissions.spendPermissions.length, 'total permissions');
