@@ -95,6 +95,8 @@ import {
   useSignInWithSms,
   useSignOut,
   useSolanaAddress,
+  useCreateSpendPermission,
+  useGetAccessToken,
 } from "@coinbase/cdp-hooks";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import * as Clipboard from "expo-clipboard";
@@ -235,6 +237,14 @@ export default function WalletScreen() {
   const [loadingTestnetBalances, setLoadingTestnetBalances] = useState(false);
   const [testnetBalancesError, setTestnetBalancesError] = useState<string | null>(null);
   const [testnetBalancesExpanded, setTestnetBalancesExpanded] = useState(false);
+
+  // Test buttons state
+  const [creatingTestnetSP, setCreatingTestnetSP] = useState(false);
+  const [testSweepLoading, setTestSweepLoading] = useState(false);
+  const [serverWalletAddress, setServerWalletAddress] = useState<string | null>(null);
+
+  const { createSpendPermission } = useCreateSpendPermission();
+  const { getAccessToken } = useGetAccessToken();
 
   // sync local state with shared state on mount
   useEffect(() => {
@@ -710,6 +720,120 @@ export default function WalletScreen() {
     } finally {
       setExporting(false);
       setShowExportConfirm(false);
+    }
+  };
+
+  // Fetch server wallet address on mount
+  useEffect(() => {
+    const fetchServerWallet = async () => {
+      try {
+        const accessToken = await getAccessToken();
+        if (!accessToken) return;
+
+        const backendUrl = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:3000';
+        const response = await fetch(`${backendUrl}/server-wallet/address`, {
+          headers: { 'Authorization': `Bearer ${accessToken}` }
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setServerWalletAddress(data.address);
+        }
+      } catch (error) {
+        console.error('Failed to fetch server wallet address:', error);
+      }
+    };
+
+    fetchServerWallet();
+  }, [getAccessToken]);
+
+  // Handler: Create testnet spend permission
+  const handleCreateTestnetSP = async () => {
+    try {
+      setCreatingTestnetSP(true);
+
+      const smartAccountAddress = currentUser?.evmSmartAccounts?.[0] as string;
+      if (!smartAccountAddress || !serverWalletAddress) {
+        throw new Error('Missing smart account or server wallet address');
+      }
+
+      await createSpendPermission({
+        network: 'base-sepolia', // Testnet
+        spender: serverWalletAddress as `0x${string}`,
+        token: '0x036CbD53842c5426634e7929541eC2318f3dCF7e' as `0x${string}`, // Base Sepolia USDC
+        allowance: BigInt(10000 * 1_000_000), // 10,000 USDC (6 decimals)
+        periodInDays: 7, // Weekly limit
+        useCdpPaymaster: true,
+      });
+
+      setAlertState({
+        visible: true,
+        title: "Testnet SP Created",
+        message: "Spend permission for Base Sepolia USDC created successfully!",
+        type: "info"
+      });
+    } catch (error) {
+      setAlertState({
+        visible: true,
+        title: "Failed to Create SP",
+        message: error instanceof Error ? error.message : 'Unknown error',
+        type: "error"
+      });
+    } finally {
+      setCreatingTestnetSP(false);
+    }
+  };
+
+  // Handler: Test manual sweep
+  const handleTestSweep = async () => {
+    try {
+      setTestSweepLoading(true);
+
+      const smartAccountAddress = currentUser?.evmSmartAccounts?.[0] as string;
+      if (!smartAccountAddress) {
+        throw new Error('No smart account found');
+      }
+
+      const accessToken = await getAccessToken();
+      if (!accessToken) {
+        throw new Error('No access token');
+      }
+
+      const backendUrl = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:3000';
+      const response = await fetch(`${backendUrl}/test/sweep`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          destinationAddress: smartAccountAddress,
+          amount: '0.500000', // 0.5 USDC
+          network: 'base-sepolia'
+        })
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        setAlertState({
+          visible: true,
+          title: "Test Sweep Complete",
+          message: result.message,
+          type: "info"
+        });
+      } else {
+        throw new Error(result.error || 'Sweep failed');
+      }
+    } catch (error) {
+      setAlertState({
+        visible: true,
+        title: "Test Sweep Failed",
+        message: error instanceof Error ? error.message : 'Unknown error',
+        type: "error"
+      });
+    } finally {
+      setTestSweepLoading(false);
     }
   };
 
@@ -1403,6 +1527,39 @@ export default function WalletScreen() {
               </View>
             )}
 
+            {/* Test Buttons for Spend Permission & Sweep */}
+            {effectiveIsSignedIn && primaryAddress && serverWalletAddress && (
+              <View style={styles.card}>
+                <Text style={styles.rowLabel}>🧪 Test Spend Permission & Sweep</Text>
+                <Text style={styles.helper}>
+                  Test spend permission creation and manual sweep functionality
+                </Text>
+
+                <View style={{ gap: 12, marginTop: 16 }}>
+                  <Pressable
+                    style={[styles.button, { backgroundColor: VIOLET }, creatingTestnetSP && styles.buttonDisabled]}
+                    onPress={handleCreateTestnetSP}
+                    disabled={creatingTestnetSP}
+                  >
+                    {creatingTestnetSP && <ActivityIndicator size="small" color={WHITE} style={{ marginRight: 8 }} />}
+                    <Text style={styles.buttonText}>
+                      {creatingTestnetSP ? "Creating..." : "Create Testnet SP (Base Sepolia)"}
+                    </Text>
+                  </Pressable>
+
+                  <Pressable
+                    style={[styles.button, { backgroundColor: BLUE }, testSweepLoading && styles.buttonDisabled]}
+                    onPress={handleTestSweep}
+                    disabled={testSweepLoading}
+                  >
+                    {testSweepLoading && <ActivityIndicator size="small" color={WHITE} style={{ marginRight: 8 }} />}
+                    <Text style={styles.buttonText}>
+                      {testSweepLoading ? "Sweeping..." : "Test Manual Sweep (0.5 USDC)"}
+                    </Text>
+                  </Pressable>
+                </View>
+              </View>
+            )}
 
             {/* Sandbox Wallet Card - show when sandbox mode is enabled */}
             {localSandboxEnabled && (

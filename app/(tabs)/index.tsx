@@ -90,11 +90,11 @@
  * @see utils/sharedState.ts for address resolution
  */
 
-import { useCurrentUser, useEvmAddress, useIsSignedIn, useSignOut, useSolanaAddress } from "@coinbase/cdp-hooks";
+import { useCurrentUser, useEvmAddress, useIsSignedIn, useSignOut, useSolanaAddress, useCreateSpendPermission, useGetAccessToken } from "@coinbase/cdp-hooks";
 import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
 import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
-import { ApplePayWidget, OnrampForm, useOnramp } from "../../components";
+import { ApplePayWidget, ConsentPopup, OnrampForm, useOnramp } from "../../components";
 import { CoinbaseAlert } from "../../components/ui/CoinbaseAlerts";
 import { COLORS } from "../../constants/Colors";
 import { clearPhoneVerifyWasCanceled, getCountry, getCurrentNetwork, getCurrentPartnerUserRef, getCurrentWalletAddress, getPendingForm, getPhoneVerifyWasCanceled, getSandboxMode, getSubdivision, getTestWalletEvm, getTestWalletSol, getVerifiedPhone, isPhoneFresh60d, isTestSessionActive, setCurrentSolanaAddress, setCurrentWalletAddress, setPendingForm } from "../../utils/sharedState";
@@ -129,6 +129,12 @@ export default function Index() {
     network: string;
   } | null>(null);
 
+  // Consent popup state
+  const [showConsentPopup, setShowConsentPopup] = useState(false);
+  const [isCreatingSpendPermission, setIsCreatingSpendPermission] = useState(false);
+  const [userHasWalletAndSP, setUserHasWalletAndSP] = useState<boolean | null>(null); // null = not checked, true = has both, false = needs initialization
+  const [pendingFormData, setPendingFormData] = useState<any>(null); // Store form data while waiting for consent
+
   
 
 
@@ -141,6 +147,8 @@ export default function Index() {
   const { evmAddress: cdpEvmAddress } = useEvmAddress();
   const { solanaAddress: cdpSolanaAddress } = useSolanaAddress();
   const { signOut } = useSignOut();
+  const { getAccessToken } = useGetAccessToken();
+  const { createSpendPermission, status: spStatus, data: spData } = useCreateSpendPermission();
   const [connectedAddress, setConnectedAddress] = useState('');
 
   // Override addresses for test session
@@ -461,7 +469,176 @@ export default function Index() {
     }, [pendingForm, createOrder, createWidgetSession, getNetworkNameFromDisplayName, getAssetSymbolFromName, currentUser, evmAddress, solanaAddress, effectiveIsSignedIn])
   );
 
-  const handleSubmit = useCallback(async (formData: any) => {
+  // Check if user has wallet + SP in database on app load
+  useEffect(() => {
+    const checkUser = async () => {
+      if (!effectiveIsSignedIn || !currentUser?.userId) return;
+
+      // Skip check for sandbox mode or test sessions
+      if (getSandboxMode() || testSession) {
+        setUserHasWalletAndSP(true); // Assume complete, skip consent for sandbox
+        return;
+      }
+
+      try {
+        const { checkUserExists } = await import('../../utils/userDataApi');
+        const accessToken = await getAccessToken();
+
+        if (!accessToken) {
+          console.warn('⚠️ [USER CHECK] No access token available');
+          return;
+        }
+
+        const result = await checkUserExists(currentUser.userId, accessToken);
+        setUserHasWalletAndSP(result.hasWalletAndSP);
+
+        if (result.hasWalletAndSP) {
+          console.log('✅ [USER CHECK] User has wallet + SP, skipping consent');
+        } else if (result.exists && result.needsInitialization) {
+          console.log('⚠️ [USER CHECK] User exists but missing wallet/SP (partner use case)');
+          console.log('ℹ️ [USER CHECK] Will show consent popup to initialize wallet + SP');
+        } else {
+          console.log('ℹ️ [USER CHECK] New user, will show consent popup on first transaction');
+        }
+      } catch (error) {
+        console.error('❌ [USER CHECK] Error checking user:', error);
+        // On error, assume user needs initialization (show consent to be safe)
+        setUserHasWalletAndSP(false);
+      }
+    };
+
+    checkUser();
+  }, [effectiveIsSignedIn, currentUser?.userId, testSession, getAccessToken]);
+
+  // Handle consent accept: Create SP and store in Redis
+  const handleConsentAccept = useCallback(async () => {
+    try {
+      setIsCreatingSpendPermission(true);
+
+      // For partners: This is where they would call useAuthenticateWithJWT()
+      // ================================================================
+      // import { useAuthenticateWithJWT } from '@coinbase/cdp-hooks';
+      //
+      // const jwt = await getPartnerJWT(userId); // Partner generates JWT
+      // const { isAuthenticated } = useAuthenticateWithJWT(jwt);
+      //
+      // if (!isAuthenticated) {
+      //   throw new Error('Failed to authenticate user');
+      // }
+      // ================================================================
+
+      // Get Smart Account address (must be Smart Account, not EOA)
+      const smartAccountAddress = currentUser?.evmSmartAccounts?.[0] as string;
+
+      if (!smartAccountAddress) {
+        throw new Error('No Smart Account found. Please ensure your account has spend permissions enabled.');
+      }
+
+      console.log('💳 [CONSENT] Creating spend permission for Smart Account:', smartAccountAddress);
+
+      // Create spend permission: Base mainnet USDC, 10,000 USDC per week
+      // Spender = Server's Smart Account (not admin address)
+      // Using convenient "usdc" shortcut (only works on Base/Base Sepolia)
+      const result = await createSpendPermission({
+        network: 'base', // Base mainnet
+        spender: process.env.EXPO_PUBLIC_SERVER_WALLET_ADDRESS! as `0x${string}`, // Server wallet (spender)
+        token: 'usdc', // Base mainnet USDC (0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913)
+        allowance: BigInt(10000 * 1_000_000), // 10,000 USDC (6 decimals)
+        periodInDays: 7, // Weekly limit
+        useCdpPaymaster: true, // Gas sponsorship
+      });
+
+      console.log('✅ [CONSENT] Spend permission created:', result);
+
+      // Wait for SP creation to complete
+      if (result.userOperationHash) {
+        console.log('⏳ [CONSENT] Waiting for SP creation to complete...');
+        // The hook automatically tracks status via spStatus
+      }
+
+    } catch (error) {
+      console.error('❌ [CONSENT] Error creating spend permission:', error);
+      setIsCreatingSpendPermission(false);
+      setShowConsentPopup(false);
+
+      setApplePayAlert({
+        visible: true,
+        title: 'Setup Failed',
+        message: error instanceof Error ? error.message : 'Failed to create spend permission. Please try again.',
+        type: 'error'
+      });
+    }
+  }, [currentUser, createSpendPermission]);
+
+  // Watch for SP creation completion
+  useEffect(() => {
+    const finalizeSPCreation = async () => {
+      if (spStatus === 'success' && spData && isCreatingSpendPermission) {
+        try {
+          console.log('✅ [CONSENT] SP creation successful, storing in Redis...');
+
+          const smartAccountAddress = currentUser?.evmSmartAccounts?.[0] as string;
+          const accessToken = await getAccessToken();
+
+          if (!accessToken || !currentUser?.userId || !smartAccountAddress) {
+            throw new Error('Missing required data for user initialization');
+          }
+
+          // Get permission hash from the transaction (we'll need to fetch it)
+          // Since the hook doesn't return the hash directly, we'll use a placeholder
+          // In production, you'd fetch this from the transaction or list permissions
+          const permissionHash = spData.transactionHash || 'temp-hash'; // Placeholder
+
+          // Store in Redis
+          const { initializeUser } = await import('../../utils/userDataApi');
+          await initializeUser(
+            currentUser.userId,
+            smartAccountAddress,
+            permissionHash,
+            accessToken
+          );
+
+          console.log('✅ [CONSENT] User initialized in database');
+          setUserHasWalletAndSP(true);
+          setIsCreatingSpendPermission(false);
+          setShowConsentPopup(false);
+
+          // Resume the pending transaction
+          if (pendingFormData) {
+            console.log('🔄 [CONSENT] Resuming pending transaction...');
+            handleSubmitInternal(pendingFormData);
+            setPendingFormData(null);
+          }
+
+        } catch (error) {
+          console.error('❌ [CONSENT] Error storing user data:', error);
+          setIsCreatingSpendPermission(false);
+          setShowConsentPopup(false);
+
+          setApplePayAlert({
+            visible: true,
+            title: 'Setup Failed',
+            message: 'Failed to complete setup. Please try again.',
+            type: 'error'
+          });
+        }
+      }
+    };
+
+    finalizeSPCreation();
+  }, [spStatus, spData, isCreatingSpendPermission, currentUser, getAccessToken, pendingFormData]);
+
+  // Handle consent decline
+  const handleConsentDecline = useCallback(() => {
+    setShowConsentPopup(false);
+    setPendingFormData(null);
+    setIsProcessingPayment(false);
+
+    console.log('ℹ️ [CONSENT] User declined consent');
+  }, []);
+
+  // Preflight check: Ensure user has wallet + SP before proceeding
+  const handleSubmitInternal = useCallback(async (formData: any) => {
     setIsProcessingPayment(true);
 
     // CRITICAL: Convert display names to API format (e.g., "Solana" → "solana", "USD Coin" → "USDC")
@@ -680,8 +857,30 @@ export default function Index() {
       setIsProcessingPayment(false);
     }
   }, [createOrder, createWidgetSession, router, currentUser, evmAddress, solanaAddress, getNetworkNameFromDisplayName, getAssetSymbolFromName, signOut]);
-    
-  
+
+  // Public handleSubmit: Checks if user has wallet + SP, shows consent if needed
+  const handleSubmit = useCallback(async (formData: any) => {
+    // Skip consent check for sandbox mode
+    if (getSandboxMode()) {
+      return handleSubmitInternal(formData);
+    }
+
+    // Check if user has both wallet AND SP
+    if (userHasWalletAndSP === false) {
+      // User missing wallet/SP - show consent popup
+      // This handles both:
+      // 1. New users (no record at all)
+      // 2. Existing partner users (have userId but no wallet/SP)
+      console.log('ℹ️ [SUBMIT] User needs wallet + SP initialization, showing consent popup');
+      setPendingFormData(formData);
+      setShowConsentPopup(true);
+      return;
+    }
+
+    // User has complete setup or check not completed yet - proceed
+    return handleSubmitInternal(formData);
+  }, [userHasWalletAndSP, handleSubmitInternal]);
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -751,6 +950,15 @@ export default function Index() {
           }}
         />
       )}
+
+      {/* Consent Popup - First-time user setup */}
+      <ConsentPopup
+        visible={showConsentPopup}
+        onAccept={handleConsentAccept}
+        onDecline={handleConsentDecline}
+        isLoading={isCreatingSpendPermission}
+      />
+
       {/* OnrampForm Alert - Wallet Connection (Always Success) */}
       <CoinbaseAlert
         visible={showAlert}

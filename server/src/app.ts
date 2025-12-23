@@ -16,10 +16,18 @@ const useDatabase = !!databaseUrl;
 if (useDatabase) {
   const { createClient } = await import('redis');
   database = await createClient({ url: databaseUrl! }).connect();
-  console.log('✅ Using external database for push token storage (production)');
+  console.log('✅ Using external database for push token and user data storage (production)');
 } else {
-  console.log('ℹ️ Using in-memory storage for push tokens (local dev)');
+  console.log('ℹ️ Using in-memory storage for push tokens and user data (local dev)');
 }
+
+// Export database connection for reuse in other modules
+export { database, useDatabase };
+
+// Initialize server wallet (spender for spend permissions)
+import { initializeServerWallet } from './serverWallet.js';
+const serverWalletAddress = await initializeServerWallet();
+console.log('💼 [SERVER] Server wallet ready:', serverWalletAddress);
 
 // APNs setup for direct iOS push notifications
 let apnProvider: any = null;
@@ -128,6 +136,67 @@ app.get("/health", (_req, res) => {
   res.json({ ok: true, message: 'Server is running' });
 });
 
+// Get server wallet address (requires auth)
+app.get("/server-wallet/address", (_req, res) => {
+  const { getServerWalletAddress } = require('./serverWallet.js');
+  try {
+    const address = getServerWalletAddress();
+    res.json({
+      success: true,
+      address,
+      message: 'Server wallet address (spender for spend permissions)'
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to get server wallet address'
+    });
+  }
+});
+
+/**
+ * Test Sweep Endpoint
+ * POST /test/sweep
+ *
+ * Manual trigger for testing sweep functionality
+ * Requires authentication
+ */
+app.post("/test/sweep", async (req, res) => {
+  try {
+    const { destinationAddress, amount, network } = req.body;
+
+    if (!destinationAddress || !amount) {
+      return res.status(400).json({
+        success: false,
+        error: 'destinationAddress and amount are required'
+      });
+    }
+
+    console.log('🧪 [TEST] Manual sweep triggered:', {
+      destinationAddress,
+      amount,
+      network: network || 'base-sepolia'
+    });
+
+    const { executeTestSweep } = await import('./testSweep.js');
+
+    const result = await executeTestSweep({
+      destinationAddress,
+      amount,
+      network
+    });
+
+    res.json(result);
+
+  } catch (error) {
+    console.error('❌ [TEST] Test sweep error:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Test sweep failed'
+    });
+  }
+});
+
 // 🔒 GLOBAL AUTHENTICATION MIDDLEWARE
 // All routes except /health and /webhooks require valid CDP access token
 app.use((req, res, next) => {
@@ -136,7 +205,7 @@ app.use((req, res, next) => {
     return next();
   }
 
-  // Apply authentication to all other routes (including /push-tokens)
+  // Apply authentication to all other routes (including /push-tokens and /server-wallet)
   return validateAccessToken(req, res, next);
 });
 
@@ -721,6 +790,156 @@ app.get('/push-tokens/debug/:userId', async (req, res) => {
 });
 
 /**
+ * User Initialization Endpoint
+ * POST /user/init
+ *
+ * Called ONLY when user gives consent (first-time user flow).
+ * Client should check GET /user/:userId first - if user exists, skip consent entirely.
+ *
+ * Request body: { userId: string, walletAddress: string, spendPermissionHash: string }
+ * Response: { success: true, walletAddress: string, isNewUser: boolean }
+ *
+ * Flow:
+ * 1. Defensive check: if user exists in Redis → return existing data (edge case/retry)
+ * 2. If not exists → store wallet + SP hash in Redis
+ */
+app.post('/user/init', async (req, res) => {
+  try {
+    const { getUserData, saveUserData } = await import('./userDataHelpers.js');
+    const { userId, walletAddress, spendPermissionHash } = req.body;
+
+    if (!userId || !walletAddress || !spendPermissionHash) {
+      return res.status(400).json({
+        error: 'userId, walletAddress, and spendPermissionHash are required'
+      });
+    }
+
+    // Security: Verify authenticated user matches the userId they're initializing
+    if (req.userId !== userId) {
+      console.error('❌ [USER INIT] Unauthorized initialization attempt:', {
+        tokenUserId: req.userId,
+        requestUserId: userId
+      });
+      return res.status(403).json({ error: 'Forbidden: Cannot initialize another user' });
+    }
+
+    console.log('📥 [USER INIT] Request for user:', userId);
+
+    // Defensive check: user already exists (edge case - retry/race condition)
+    const existingUser = await getUserData(userId);
+    if (existingUser) {
+      console.log('⚠️ [USER INIT] User already exists (edge case - returning existing data)');
+      return res.json({
+        success: true,
+        walletAddress: existingUser.walletAddress,
+        spendPermissionHash: existingUser.spendPermissionHash,
+        isNewUser: false
+      });
+    }
+
+    // Validate wallet address format
+    if (!walletAddress.match(/^0x[a-fA-F0-9]{40}$/)) {
+      return res.status(400).json({ error: 'Invalid wallet address format' });
+    }
+
+    console.log('💳 [USER INIT] Creating new user with wallet:', walletAddress);
+    console.log('🔐 [USER INIT] Spend permission hash:', spendPermissionHash);
+
+    // For partners with their own auth using Server-Signer pattern:
+    // ================================================================
+    // import { useAuthenticateWithJWT } from '@coinbase/cdp-hooks';
+    //
+    // // 1. Partner's backend generates CDP-compatible JWT
+    // const jwt = generateCdpJwtForUser(userId); // Partner implements this
+    //
+    // // 2. Authenticate with CDP using JWT (creates/fetches wallet automatically)
+    // const { isAuthenticated } = useAuthenticateWithJWT(jwt);
+    //
+    // // 3. Wallet is now available via useSmartAccount() hook
+    // const { address } = useSmartAccount();
+    //
+    // // 4. Create spend permission on client
+    // // 5. Send address + SP hash to this endpoint
+    // ================================================================
+
+    // Store user data in Redis (persists across sessions)
+    const userData = {
+      userId,
+      walletAddress,
+      spendPermissionHash,
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    };
+
+    await saveUserData(userData);
+    console.log('✅ [USER INIT] User data saved to Redis');
+
+    res.json({
+      success: true,
+      walletAddress,
+      spendPermissionHash,
+      isNewUser: true
+    });
+
+  } catch (error) {
+    console.error('❌ [USER INIT] Error:', error);
+    res.status(500).json({
+      error: 'Failed to initialize user',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+/**
+ * User Data Fetch Endpoint
+ * GET /user/:userId
+ *
+ * Returns user's wallet address and SP hash from Redis.
+ * Called on app load to check if user already has wallet + SP.
+ * If user exists → skip consent popup, use existing data.
+ */
+app.get('/user/:userId', async (req, res) => {
+  try {
+    const { getUserData } = await import('./userDataHelpers.js');
+    const { userId } = req.params;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'userId is required' });
+    }
+
+    // Security: Verify authenticated user matches the userId they're fetching
+    if (req.userId !== userId) {
+      console.error('❌ [USER FETCH] Unauthorized fetch attempt:', {
+        tokenUserId: req.userId,
+        requestUserId: userId
+      });
+      return res.status(403).json({ error: 'Forbidden: Cannot fetch another user\'s data' });
+    }
+
+    console.log('📥 [USER FETCH] Checking user:', userId);
+
+    const userData = await getUserData(userId);
+    if (!userData) {
+      console.log('ℹ️ [USER FETCH] User not found (new user - show consent)');
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    console.log('✅ [USER FETCH] User exists, returning data');
+    res.json({
+      success: true,
+      ...userData
+    });
+
+  } catch (error) {
+    console.error('❌ [USER FETCH] Error:', error);
+    res.status(500).json({
+      error: 'Failed to fetch user data',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+/**
  * Onramp Webhook Endpoint
  * POST /webhooks/onramp
  *
@@ -820,6 +1039,47 @@ app.post('/webhooks/onramp', webhookRateLimiter, async (req, res) => {
           address: webhookData.destinationAddress || webhookData.walletAddress,
           partnerUserRef
         });
+
+        // Sweep funds using spend permission
+        try {
+          if (!partnerUserRef) {
+            console.log('⚠️ [WEBHOOK] No partnerUserRef in transaction - cannot sweep or notify');
+            break;
+          }
+
+          const destinationAddress = webhookData.destinationAddress || webhookData.walletAddress;
+          const txHash = webhookData.txHash || webhookData.transactionHash;
+
+          if (!destinationAddress || !txHash) {
+            console.error('❌ [WEBHOOK] Missing destinationAddress or txHash in webhook data');
+            break;
+          }
+
+          console.log('💰 [WEBHOOK] Starting sweep process...');
+          console.log('📍 Destination address:', destinationAddress);
+          console.log('🔗 Transaction hash:', txHash);
+          console.log('💵 Purchase amount:', amount, currency);
+
+          // Import sweep function
+          const { executeSweep } = await import('./sweepFunds.js');
+
+          // Execute sweep (includes tx confirmation, SP validation, and transfer to admin)
+          await executeSweep({
+            txHash,
+            destinationAddress,
+            network: network,
+            amount,
+            currency,
+            partnerUserRef
+          });
+
+          console.log('✅ [WEBHOOK] Sweep completed successfully');
+
+        } catch (sweepError) {
+          console.error('❌ [WEBHOOK] Error during sweep:', sweepError);
+          console.error('📋 [WEBHOOK] Error details:', sweepError instanceof Error ? sweepError.message : sweepError);
+          // Don't fail the webhook - continue with notification
+        }
 
         // Send push notification via Expo Push API (user-specific)
         try {

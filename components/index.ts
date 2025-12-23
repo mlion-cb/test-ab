@@ -6,6 +6,7 @@
 
 // UI Components
 export { SwipeToConfirm } from './ui/SwipeToConfirm';
+export { ConsentPopup } from './ui/ConsentPopup';
 
 
 // Onramp Components

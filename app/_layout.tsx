@@ -19,9 +19,10 @@ const isExpoGo = process.env.EXPO_PUBLIC_USE_EXPO_CRYPTO === 'true';
 // CDP configuration with both ETH and SOL support
 const cdpConfig: Config = {
   projectId: process.env.EXPO_PUBLIC_CDP_PROJECT_ID!,
-  basePath: "https://api.cdp.coinbase.com/platform",
+  // basePath: "https://api.cdp.coinbase.com/platform",
   ethereum: {
-    createOnLogin: "smart"
+    createOnLogin: "smart",
+    enableSpendPermissions: true,
   },
   solana: {
     createOnLogin: true
