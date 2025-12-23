@@ -44,7 +44,27 @@ export async function initializeServerWallet(): Promise<string> {
 
       return smartAccount.address;
 
-    } catch (loadError) {
+    } catch (loadError: any) {
+      // Check if it's a "not found" error before trying to create
+      const isNotFound = loadError?.statusCode === 404 ||
+                         loadError?.errorType === 'not_found' ||
+                         loadError?.message?.includes('not found');
+
+      const alreadyExists = loadError?.statusCode === 409 ||
+                           loadError?.errorType === 'already_exists';
+
+      if (alreadyExists) {
+        // Wallet exists but getSmartAccount failed - this shouldn't happen
+        console.error('❌ [SERVER WALLET] Wallet exists but failed to load:', loadError.message);
+        throw new Error('Server wallet exists but cannot be loaded. Please check CDP configuration.');
+      }
+
+      if (!isNotFound) {
+        // Some other error - rethrow
+        console.error('❌ [SERVER WALLET] Unexpected error loading wallet:', loadError);
+        throw loadError;
+      }
+
       // Wallet doesn't exist - create it with name
       console.log('ℹ️ [SERVER WALLET] No existing wallet found, creating new one...');
 
