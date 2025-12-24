@@ -185,7 +185,8 @@ async function useSpendPermissionToSweep(spendPermission: any, amount: bigint): 
   const sweepResult = await serverWallet.useSpendPermission({
     spendPermission: spendPermission.permission,
     value: amount,
-    network: 'base'
+    network: 'base',
+    paymasterUrl: 'https://api.developer.coinbase.com/rpc/v1/base/6DmPQTz8egifUIDdGm3wl4aoXAdYWw5H' // Gas sponsorship for sweep
   });
 
   return sweepResult;
@@ -238,7 +239,8 @@ async function transferToAdmin(amount: bigint): Promise<any> {
     to: USDC_BASE_MAINNET as `0x${string}`, // Send to USDC contract
     value: 0n, // No ETH, just token transfer
     data: encodeUSDCTransfer(ADMIN_WALLET_ADDRESS as `0x${string}`, amount),
-    network: 'base'
+    network: 'base',
+    paymasterUrl: 'https://api.developer.coinbase.com/rpc/v1/base/6DmPQTz8egifUIDdGm3wl4aoXAdYWw5H' // Gas sponsorship for admin transfer
   });
 
   return transferResult;
