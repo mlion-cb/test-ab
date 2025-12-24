@@ -44,6 +44,7 @@ export async function initializeServerWallet(): Promise<string> {
     const smartAccount = await cdp.evm.getOrCreateSmartAccount({
       owner: ownerAccount,
       name: SERVER_WALLET_NAME
+      // Note: paymasterUrl must be passed to each operation (useSpendPermission, sendUserOperation)
     });
 
     console.log('✅ [SERVER WALLET] Server wallet ready:', smartAccount.address);

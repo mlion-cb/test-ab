@@ -181,12 +181,17 @@ async function useSpendPermissionToSweep(spendPermission: any, amount: bigint): 
 
   const serverWallet = getServerWallet();
   console.log('🔄 [SWEEP] Using server wallet to execute spend permission...');
+  console.log('🔍 [SWEEP] Full permission object:', JSON.stringify(spendPermission, (key, value) =>
+    typeof value === 'bigint' ? value.toString() : value
+  , 2));
+  console.log('🔍 [SWEEP] Amount to sweep:', amount.toString(), '(0.5 USDC = 500000 with 6 decimals)');
+  console.log('🔍 [SWEEP] Current timestamp:', Math.floor(Date.now() / 1000));
 
   const sweepResult = await serverWallet.useSpendPermission({
     spendPermission: spendPermission.permission,
     value: amount,
     network: 'base',
-    paymasterUrl: 'https://api.developer.coinbase.com/rpc/v1/base/6DmPQTz8egifUIDdGm3wl4aoXAdYWw5H' // Gas sponsorship for sweep
+    paymasterUrl: 'https://api.developer.coinbase.com/rpc/v1/base/6DmPQTz8egifUIDdGm3wl4aoXAdYWw5H'
   });
 
   return sweepResult;
@@ -240,7 +245,7 @@ async function transferToAdmin(amount: bigint): Promise<any> {
     value: 0n, // No ETH, just token transfer
     data: encodeUSDCTransfer(ADMIN_WALLET_ADDRESS as `0x${string}`, amount),
     network: 'base',
-    paymasterUrl: 'https://api.developer.coinbase.com/rpc/v1/base/6DmPQTz8egifUIDdGm3wl4aoXAdYWw5H' // Gas sponsorship for admin transfer
+    paymasterUrl: 'https://api.developer.coinbase.com/rpc/v1/base/6DmPQTz8egifUIDdGm3wl4aoXAdYWw5H'
   });
 
   return transferResult;
