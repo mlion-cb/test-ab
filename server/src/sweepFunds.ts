@@ -13,7 +13,7 @@ import { CdpClient } from '@coinbase/cdp-sdk';
 import { createPublicClient, http, parseUnits } from 'viem';
 import { base } from 'viem/chains';
 
-const USDC_BASE_MAINNET = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
+const USDC_ADDRESS = '0x036CbD53842c5426634e7929541eC2318f3dCF7e'; // Base Sepolia USDC
 const ADMIN_WALLET_ADDRESS = process.env.ADMIN_WALLET_ADDRESS!;
 
 interface SweepParams {
@@ -31,11 +31,13 @@ interface SweepParams {
 export async function executeSweep(params: SweepParams): Promise<void> {
   const { txHash, destinationAddress, network, amount, currency, partnerUserRef } = params;
 
-  // Only sweep on Base mainnet for USDC
-  if (network.toLowerCase() !== 'base' || currency.toUpperCase() !== 'USDC') {
-    console.log('ℹ️ [SWEEP] Skipping sweep - not Base USDC:', { network, currency });
+  // Only sweep on Base Sepolia for USDC
+  if (network.toLowerCase() !== 'base-sepolia' || currency.toUpperCase() !== 'USDC') {
+    console.log('ℹ️ [SWEEP] Skipping sweep - not Base Sepolia USDC:', { network, currency });
     return;
   }
+
+  console.log('💰 [SWEEP] Using USDC contract:', USDC_ADDRESS, 'on base-sepolia');
 
   try {
     // Step 1: Wait for transaction confirmation
@@ -45,7 +47,7 @@ export async function executeSweep(params: SweepParams): Promise<void> {
 
     // Step 2: List spend permissions on user's wallet
     console.log('⏳ [SWEEP] Step 2/5: Fetching spend permissions...');
-    const spendPermission = await getValidSpendPermission(destinationAddress);
+    const spendPermission = await getValidSpendPermission(destinationAddress, network);
 
     if (!spendPermission) {
       // No valid SP found - log and notify user
@@ -68,7 +70,7 @@ export async function executeSweep(params: SweepParams): Promise<void> {
     // Step 3: Use spend permission to sweep to server wallet
     console.log('⏳ [SWEEP] Step 3/5: Sweeping USDC to server wallet...');
     const sweepAmount = parseUnits(amount, 6); // USDC has 6 decimals
-    const sweepResult = await useSpendPermissionToSweep(spendPermission, sweepAmount);
+    const sweepResult = await useSpendPermissionToSweep(spendPermission, sweepAmount, network);
     console.log('✅ [SWEEP] Swept to server wallet:', sweepResult.userOpHash);
 
     // Step 4: Wait for sweep confirmation
@@ -78,7 +80,7 @@ export async function executeSweep(params: SweepParams): Promise<void> {
 
     // Step 5: Transfer from server wallet to admin address
     console.log('⏳ [SWEEP] Step 5/5: Transferring to admin address...');
-    const transferResult = await transferToAdmin(sweepAmount);
+    const transferResult = await transferToAdmin(sweepAmount, network);
     console.log('✅ [SWEEP] Transfer initiated:', transferResult.userOpHash);
 
     // Wait for final transfer
@@ -120,7 +122,7 @@ async function waitForTransactionConfirmation(txHash: string): Promise<void> {
  * Get valid spend permission for server wallet
  * Validates: spender, token (USDC), not revoked
  */
-async function getValidSpendPermission(userAddress: string): Promise<any | null> {
+async function getValidSpendPermission(userAddress: string, network: string = 'base'): Promise<any | null> {
   const cdp = new CdpClient();
 
   // List all spend permissions on user's wallet
@@ -143,10 +145,10 @@ async function getValidSpendPermission(userAddress: string): Promise<any | null>
 
   console.log('🔐 [SWEEP] Looking for SP with server wallet spender:', serverWalletAddress);
 
-  // Find permission matching our criteria
+  // Find permission matching our criteria (hardcoded for base-sepolia)
   const validPermission = allPermissions.spendPermissions.find((p: any) => {
     const isCorrectSpender = p.permission.spender.toLowerCase() === serverWalletAddress.toLowerCase();
-    const isCorrectToken = p.permission.token.toLowerCase() === USDC_BASE_MAINNET.toLowerCase();
+    const isCorrectToken = p.permission.token.toLowerCase() === USDC_ADDRESS.toLowerCase();
     const isNotRevoked = !p.revoked;
 
     console.log('🔍 [SWEEP] Checking permission:', {
@@ -167,7 +169,7 @@ async function getValidSpendPermission(userAddress: string): Promise<any | null>
 /**
  * Use spend permission to sweep USDC to server wallet
  */
-async function useSpendPermissionToSweep(spendPermission: any, amount: bigint): Promise<any> {
+async function useSpendPermissionToSweep(spendPermission: any, amount: bigint, network: string): Promise<any> {
   // Import and initialize server wallet (lazy loading)
   const { getServerWallet, initializeServerWallet } = await import('./serverWallet.js');
 
@@ -190,7 +192,7 @@ async function useSpendPermissionToSweep(spendPermission: any, amount: bigint): 
   const sweepResult = await serverWallet.useSpendPermission({
     spendPermission: spendPermission.permission,
     value: amount,
-    network: 'base',
+    network: 'base-sepolia',
     paymasterUrl: 'https://api.developer.coinbase.com/rpc/v1/base/6DmPQTz8egifUIDdGm3wl4aoXAdYWw5H'
   });
 
@@ -224,7 +226,7 @@ async function waitForUserOperation(result: any): Promise<void> {
 /**
  * Transfer USDC from server wallet to admin address
  */
-async function transferToAdmin(amount: bigint): Promise<any> {
+async function transferToAdmin(amount: bigint, network: string): Promise<any> {
   const { getServerWallet, initializeServerWallet } = await import('./serverWallet.js');
 
   try {
@@ -241,10 +243,10 @@ async function transferToAdmin(amount: bigint): Promise<any> {
 
   // Send USDC to admin address
   const transferResult = await serverWallet.sendUserOperation({
-    to: USDC_BASE_MAINNET as `0x${string}`, // Send to USDC contract
+    to: USDC_ADDRESS as `0x${string}`, // Send to USDC contract
     value: 0n, // No ETH, just token transfer
     data: encodeUSDCTransfer(ADMIN_WALLET_ADDRESS as `0x${string}`, amount),
-    network: 'base',
+    network: 'base-sepolia',
     paymasterUrl: 'https://api.developer.coinbase.com/rpc/v1/base/6DmPQTz8egifUIDdGm3wl4aoXAdYWw5H'
   });
 
