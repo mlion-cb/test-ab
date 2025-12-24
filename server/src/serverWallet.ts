@@ -22,54 +22,29 @@ let serverWalletAddress: string | null = null;
 
 /**
  * Initialize server wallet (called on app startup)
- * Loads by address if in .env, otherwise creates new one
+ * Uses named owner + named smart account - both persist automatically!
  */
 export async function initializeServerWallet(): Promise<string> {
   try {
     const cdp = new CdpClient();
 
-    // If address exists in env, try to load it
-    if (STORED_ADDRESS) {
-      console.log('🔄 [SERVER WALLET] Loading existing wallet from address:', STORED_ADDRESS);
+    console.log('🔄 [SERVER WALLET] Initializing wallet with name:', SERVER_WALLET_NAME);
 
-      try {
-        const smartAccount = await cdp.evm.getSmartAccount({
-          address: STORED_ADDRESS as `0x${string}`
-        });
+    // Get or create named owner account (persists by name!)
+    const ownerAccount = await cdp.evm.getOrCreateAccount({
+      name: SERVER_WALLET_NAME + '-owner'
+    });
+    console.log('✅ [SERVER WALLET] Owner account ready:', ownerAccount.address);
 
-        console.log('✅ [SERVER WALLET] Wallet loaded successfully');
-        console.log('📛 [SERVER WALLET] Name:', SERVER_WALLET_NAME);
-
-        serverWallet = smartAccount;
-        serverWalletAddress = smartAccount.address;
-
-        return smartAccount.address;
-
-      } catch (loadError: any) {
-        console.error('❌ [SERVER WALLET] Failed to load wallet from env:', loadError.message);
-        throw new Error('SERVER_WALLET_ADDRESS in .env is invalid or wallet no longer exists');
-      }
-    }
-
-    // No address in env - create new wallet
-    console.log('ℹ️ [SERVER WALLET] No SERVER_WALLET_ADDRESS in .env, creating new wallet...');
-    console.log('📛 [SERVER WALLET] Name:', SERVER_WALLET_NAME);
-
-    // Create owner account (EOA)
-    const ownerAccount = await cdp.evm.createAccount();
-    console.log('✅ [SERVER WALLET] Created owner account:', ownerAccount.address);
-
-    // Create smart account with name
-    const smartAccount = await cdp.evm.createSmartAccount({
+    // Get or create named smart account (persists by name!)
+    const smartAccount = await cdp.evm.getOrCreateSmartAccount({
       owner: ownerAccount,
       name: SERVER_WALLET_NAME
     });
 
-    console.log('✅ [SERVER WALLET] Created server smart account:', smartAccount.address);
-    console.log('');
-    console.log('⚠️  IMPORTANT: Add this to your .env file:');
-    console.log('⚠️  SERVER_WALLET_ADDRESS=' + smartAccount.address);
-    console.log('');
+    console.log('✅ [SERVER WALLET] Server wallet ready:', smartAccount.address);
+    console.log('📛 [SERVER WALLET] Wallet name:', SERVER_WALLET_NAME);
+    console.log('💡 [SERVER WALLET] No env variables needed - persisted by name!');
 
     serverWallet = smartAccount;
     serverWalletAddress = smartAccount.address;
