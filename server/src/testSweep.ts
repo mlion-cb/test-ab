@@ -21,7 +21,7 @@ export async function executeTestSweep(params: TestSweepParams): Promise<{ succe
   const {
     destinationAddress,
     amount,
-    network = 'base',
+    network = 'base-sepolia',
     txHash = '0xf7aa005cb079df18ab6a91d7b5dc69bedbd30a31e4c9e5de11a57caa843950ea' // Real confirmed Base transaction
   } = params;
 
