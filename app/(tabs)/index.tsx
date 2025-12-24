@@ -97,6 +97,7 @@ import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import { ApplePayWidget, ConsentPopup, OnrampForm, useOnramp } from "../../components";
 import { CoinbaseAlert } from "../../components/ui/CoinbaseAlerts";
 import { COLORS } from "../../constants/Colors";
+import { BASE_URL } from "../../constants/BASE_URL";
 import { clearPhoneVerifyWasCanceled, getCountry, getCurrentNetwork, getCurrentPartnerUserRef, getCurrentWalletAddress, getPendingForm, getPhoneVerifyWasCanceled, getSandboxMode, getSubdivision, getTestWalletEvm, getTestWalletSol, getVerifiedPhone, isPhoneFresh60d, isTestSessionActive, setCurrentSolanaAddress, setCurrentWalletAddress, setPendingForm } from "../../utils/sharedState";
 import { TEST_ACCOUNTS } from "../../constants/TestAccounts";
 
@@ -469,46 +470,7 @@ export default function Index() {
     }, [pendingForm, createOrder, createWidgetSession, getNetworkNameFromDisplayName, getAssetSymbolFromName, currentUser, evmAddress, solanaAddress, effectiveIsSignedIn])
   );
 
-  // Check if user has wallet + SP in database on app load
-  useEffect(() => {
-    const checkUser = async () => {
-      if (!effectiveIsSignedIn || !currentUser?.userId) return;
-
-      // Skip check for sandbox mode or test sessions
-      if (getSandboxMode() || testSession) {
-        setUserHasWalletAndSP(true); // Assume complete, skip consent for sandbox
-        return;
-      }
-
-      try {
-        const { checkUserExists } = await import('../../utils/userDataApi');
-        const accessToken = await getAccessToken();
-
-        if (!accessToken) {
-          console.warn('⚠️ [USER CHECK] No access token available');
-          return;
-        }
-
-        const result = await checkUserExists(currentUser.userId, accessToken);
-        setUserHasWalletAndSP(result.hasWalletAndSP);
-
-        if (result.hasWalletAndSP) {
-          console.log('✅ [USER CHECK] User has wallet + SP, skipping consent');
-        } else if (result.exists && result.needsInitialization) {
-          console.log('⚠️ [USER CHECK] User exists but missing wallet/SP (partner use case)');
-          console.log('ℹ️ [USER CHECK] Will show consent popup to initialize wallet + SP');
-        } else {
-          console.log('ℹ️ [USER CHECK] New user, will show consent popup on first transaction');
-        }
-      } catch (error) {
-        console.error('❌ [USER CHECK] Error checking user:', error);
-        // On error, assume user needs initialization (show consent to be safe)
-        setUserHasWalletAndSP(false);
-      }
-    };
-
-    checkUser();
-  }, [effectiveIsSignedIn, currentUser?.userId, testSession, getAccessToken]);
+  // User check moved to handleSubmit - only check when user actually tries to submit
 
   // Handle consent accept: Create SP and store in Redis
   const handleConsentAccept = useCallback(async () => {
@@ -563,17 +525,24 @@ export default function Index() {
         throw new Error('No access token available');
       }
 
-      const backendUrl = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:3000';
-      const response = await fetch(`${backendUrl}/server-wallet/address`, {
+      console.log('🔄 [CONSENT] Backend URL:', BASE_URL);
+      console.log('🔄 [CONSENT] Calling:', `${BASE_URL}/server-wallet/address`);
+
+      const response = await fetch(`${BASE_URL}/server-wallet/address`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       });
 
+      console.log('📥 [CONSENT] Response status:', response.status);
+
       if (!response.ok) {
-        throw new Error('Failed to fetch server wallet address');
+        const errorText = await response.text();
+        console.error('❌ [CONSENT] Server response:', errorText);
+        throw new Error(`Failed to fetch server wallet address: ${response.status}`);
       }
 
       const walletData = await response.json();
       const fetchedServerWalletAddress = walletData.address;
+      console.log('✅ [CONSENT] Got server wallet address:', fetchedServerWalletAddress);
 
       console.log('✅ [CONSENT] Server wallet ready:', fetchedServerWalletAddress);
       console.log('💳 [CONSENT] Creating spend permission for Smart Account:', smartAccountAddress);
@@ -581,14 +550,13 @@ export default function Index() {
 
       // Create spend permission: Base mainnet USDC, 10,000 USDC per week
       // Spender = Server's Smart Account (not admin address)
-      // Using convenient "usdc" shortcut (only works on Base/Base Sepolia)
       const result = await createSpendPermission({
         network: 'base', // Base mainnet
         spender: fetchedServerWalletAddress as `0x${string}`, // Server wallet (spender)
-        token: 'usdc', // Base mainnet USDC (0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913)
+        token: 'usdc', // Use shortcut for paymaster compatibility
         allowance: BigInt(10000 * 1_000_000), // 10,000 USDC (6 decimals)
         periodInDays: 7, // Weekly limit
-        useCdpPaymaster: true, // Gas sponsorship
+        useCdpPaymaster: true, // Enables CDP Paymaster for gas sponsorship
       });
 
       console.log('✅ [CONSENT] Spend permission created:', result);
@@ -903,26 +871,64 @@ export default function Index() {
 
   // Public handleSubmit: Checks if user has wallet + SP, shows consent if needed
   const handleSubmit = useCallback(async (formData: any) => {
-    // Skip consent check for sandbox mode
-    if (getSandboxMode()) {
+    console.log('🔍 [SUBMIT] handleSubmit called');
+    console.log('🔍 [SUBMIT] Sandbox mode:', getSandboxMode());
+
+    // Skip consent check for sandbox mode or test sessions
+    if (getSandboxMode() || testSession) {
+      console.log('⏭️ [SUBMIT] Sandbox/test mode enabled, skipping consent check');
       return handleSubmitInternal(formData);
     }
 
-    // Check if user has both wallet AND SP
-    if (userHasWalletAndSP === false) {
-      // User missing wallet/SP - show consent popup
-      // This handles both:
-      // 1. New users (no record at all)
-      // 2. Existing partner users (have userId but no wallet/SP)
-      console.log('ℹ️ [SUBMIT] User needs wallet + SP initialization, showing consent popup');
-      setPendingFormData(formData);
-      setShowConsentPopup(true);
-      return;
+    // Check if we already know the user status
+    if (userHasWalletAndSP !== null) {
+      if (userHasWalletAndSP === false) {
+        console.log('ℹ️ [SUBMIT] User needs wallet + SP initialization, showing consent popup');
+        setPendingFormData(formData);
+        setShowConsentPopup(true);
+        return;
+      }
+      console.log('✅ [SUBMIT] User has wallet + SP, proceeding');
+      return handleSubmitInternal(formData);
     }
 
-    // User has complete setup or check not completed yet - proceed
-    return handleSubmitInternal(formData);
-  }, [userHasWalletAndSP, handleSubmitInternal]);
+    // User status unknown - check now
+    console.log('🔍 [SUBMIT] Checking if user has wallet + SP...');
+
+    if (!currentUser?.userId) {
+      console.warn('⚠️ [SUBMIT] No userId available');
+      return handleSubmitInternal(formData);
+    }
+
+    try {
+      const { checkUserExists } = await import('../../utils/userDataApi');
+      const accessToken = await getAccessToken();
+
+      if (!accessToken) {
+        console.warn('⚠️ [SUBMIT] No access token available, proceeding anyway');
+        return handleSubmitInternal(formData);
+      }
+
+      const result = await checkUserExists(currentUser.userId, accessToken);
+      setUserHasWalletAndSP(result.hasWalletAndSP);
+
+      if (result.hasWalletAndSP) {
+        console.log('✅ [SUBMIT] User has wallet + SP, proceeding');
+        return handleSubmitInternal(formData);
+      } else {
+        console.log('ℹ️ [SUBMIT] User needs initialization, showing consent popup');
+        setPendingFormData(formData);
+        setShowConsentPopup(true);
+        return;
+      }
+    } catch (error) {
+      console.error('❌ [SUBMIT] Error checking user:', error);
+      // On error, show consent to be safe
+      setUserHasWalletAndSP(false);
+      setPendingFormData(formData);
+      setShowConsentPopup(true);
+    }
+  }, [userHasWalletAndSP, handleSubmitInternal, testSession, currentUser?.userId, getAccessToken]);
 
   return (
     <View style={styles.container}>

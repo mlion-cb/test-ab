@@ -239,11 +239,8 @@ export default function WalletScreen() {
   const [testnetBalancesExpanded, setTestnetBalancesExpanded] = useState(false);
 
   // Test buttons state
-  const [creatingTestnetSP, setCreatingTestnetSP] = useState(false);
   const [testSweepLoading, setTestSweepLoading] = useState(false);
-  const [serverWalletAddress, setServerWalletAddress] = useState<string | null>(null);
 
-  const { createSpendPermission } = useCreateSpendPermission();
   const { getAccessToken } = useGetAccessToken();
 
   // sync local state with shared state on mount
@@ -723,67 +720,6 @@ export default function WalletScreen() {
     }
   };
 
-  // Fetch server wallet address on mount
-  useEffect(() => {
-    const fetchServerWallet = async () => {
-      try {
-        const accessToken = await getAccessToken();
-        if (!accessToken) return;
-
-        const backendUrl = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:3000';
-        const response = await fetch(`${backendUrl}/server-wallet/address`, {
-          headers: { 'Authorization': `Bearer ${accessToken}` }
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          setServerWalletAddress(data.address);
-        }
-      } catch (error) {
-        console.error('Failed to fetch server wallet address:', error);
-      }
-    };
-
-    fetchServerWallet();
-  }, [getAccessToken]);
-
-  // Handler: Create testnet spend permission
-  const handleCreateTestnetSP = async () => {
-    try {
-      setCreatingTestnetSP(true);
-
-      const smartAccountAddress = currentUser?.evmSmartAccounts?.[0] as string;
-      if (!smartAccountAddress || !serverWalletAddress) {
-        throw new Error('Missing smart account or server wallet address');
-      }
-
-      await createSpendPermission({
-        network: 'base-sepolia', // Testnet
-        spender: serverWalletAddress as `0x${string}`,
-        token: '0x036CbD53842c5426634e7929541eC2318f3dCF7e' as `0x${string}`, // Base Sepolia USDC
-        allowance: BigInt(10000 * 1_000_000), // 10,000 USDC (6 decimals)
-        periodInDays: 7, // Weekly limit
-        useCdpPaymaster: true,
-      });
-
-      setAlertState({
-        visible: true,
-        title: "Testnet SP Created",
-        message: "Spend permission for Base Sepolia USDC created successfully!",
-        type: "info"
-      });
-    } catch (error) {
-      setAlertState({
-        visible: true,
-        title: "Failed to Create SP",
-        message: error instanceof Error ? error.message : 'Unknown error',
-        type: "error"
-      });
-    } finally {
-      setCreatingTestnetSP(false);
-    }
-  };
-
   // Handler: Test manual sweep
   const handleTestSweep = async () => {
     try {
@@ -799,8 +735,7 @@ export default function WalletScreen() {
         throw new Error('No access token');
       }
 
-      const backendUrl = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:3000';
-      const response = await fetch(`${backendUrl}/test/sweep`, {
+      const response = await fetch(`${BASE_URL}/test/sweep`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${accessToken}`,
@@ -809,7 +744,7 @@ export default function WalletScreen() {
         body: JSON.stringify({
           destinationAddress: smartAccountAddress,
           amount: '0.500000', // 0.5 USDC
-          network: 'base-sepolia'
+          network: 'base' // Base mainnet
         })
       });
 
@@ -1527,37 +1462,24 @@ export default function WalletScreen() {
               </View>
             )}
 
-            {/* Test Buttons for Spend Permission & Sweep */}
-            {effectiveIsSignedIn && primaryAddress && serverWalletAddress && (
+            {/* Test Button for Manual Sweep */}
+            {effectiveIsSignedIn && primaryAddress && (
               <View style={styles.card}>
-                <Text style={styles.rowLabel}>🧪 Test Spend Permission & Sweep</Text>
+                <Text style={styles.rowLabel}>🧪 Test Manual Sweep</Text>
                 <Text style={styles.helper}>
-                  Test spend permission creation and manual sweep functionality
+                  Test the sweep flow (requires existing SP from consent + 0.5 USDC in wallet)
                 </Text>
 
-                <View style={{ gap: 12, marginTop: 16 }}>
-                  <Pressable
-                    style={[styles.button, { backgroundColor: VIOLET }, creatingTestnetSP && styles.buttonDisabled]}
-                    onPress={handleCreateTestnetSP}
-                    disabled={creatingTestnetSP}
-                  >
-                    {creatingTestnetSP && <ActivityIndicator size="small" color={WHITE} style={{ marginRight: 8 }} />}
-                    <Text style={styles.buttonText}>
-                      {creatingTestnetSP ? "Creating..." : "Create Testnet SP (Base Sepolia)"}
-                    </Text>
-                  </Pressable>
-
-                  <Pressable
-                    style={[styles.button, { backgroundColor: BLUE }, testSweepLoading && styles.buttonDisabled]}
-                    onPress={handleTestSweep}
-                    disabled={testSweepLoading}
-                  >
-                    {testSweepLoading && <ActivityIndicator size="small" color={WHITE} style={{ marginRight: 8 }} />}
-                    <Text style={styles.buttonText}>
-                      {testSweepLoading ? "Sweeping..." : "Test Manual Sweep (0.5 USDC)"}
-                    </Text>
-                  </Pressable>
-                </View>
+                <Pressable
+                  style={[styles.button, { backgroundColor: BLUE, marginTop: 16 }, testSweepLoading && styles.buttonDisabled]}
+                  onPress={handleTestSweep}
+                  disabled={testSweepLoading}
+                >
+                  {testSweepLoading && <ActivityIndicator size="small" color={WHITE} style={{ marginRight: 8 }} />}
+                  <Text style={styles.buttonText}>
+                    {testSweepLoading ? "Sweeping..." : "Sweep 0.5 USDC (Base Mainnet)"}
+                  </Text>
+                </Pressable>
               </View>
             )}
 

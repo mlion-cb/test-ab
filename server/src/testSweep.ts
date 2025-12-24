@@ -1,28 +1,28 @@
 /**
  * Test Sweep Function
  *
- * Simplified sweep for manual testing - skips SP validation checks
- * Assumes SP already exists for testnet
+ * Executes REAL production sweep flow for testing
+ * Uses a real confirmed transaction so all steps execute properly
  */
 
 import { executeSweep } from './sweepFunds.js';
 
 interface TestSweepParams {
   destinationAddress: string;
-  amount: string; // USDC amount as string (e.g., "100.000000")
-  network?: string; // defaults to "base-sepolia"
-  txHash?: string; // Optional - will use mock if not provided
+  amount: string; // USDC amount as string (e.g., "0.500000")
+  network?: string; // defaults to "base"
+  txHash?: string; // Optional - will use real confirmed tx if not provided
 }
 
 /**
- * Execute test sweep with mock/minimal validation
+ * Execute test sweep using production flow
  */
 export async function executeTestSweep(params: TestSweepParams): Promise<{ success: boolean; message: string }> {
   const {
     destinationAddress,
     amount,
-    network = 'base-sepolia',
-    txHash = '0x' + '0'.repeat(64) // Mock txHash for testing
+    network = 'base',
+    txHash = '0xf7aa005cb079df18ab6a91d7b5dc69bedbd30a31e4c9e5de11a57caa843950ea' // Real confirmed Base transaction
   } = params;
 
   try {

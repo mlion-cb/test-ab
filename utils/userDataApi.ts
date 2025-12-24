@@ -6,6 +6,8 @@
  * - initializeUser(): Create wallet + SP and store in Redis
  */
 
+import { BASE_URL } from '../constants/BASE_URL';
+
 /**
  * Check if user exists in backend and has valid wallet + SP
  * Returns:
@@ -25,8 +27,7 @@ export async function checkUserExists(userId: string, accessToken: string): Prom
   };
 }> {
   try {
-    const backendUrl = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:3000';
-    const response = await fetch(`${backendUrl}/user/${userId}`, {
+    const response = await fetch(`${BASE_URL}/user/${userId}`, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${accessToken}`,
@@ -87,8 +88,7 @@ export async function initializeUser(
   isNewUser: boolean;
 }> {
   try {
-    const backendUrl = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:3000';
-    const response = await fetch(`${backendUrl}/user/init`, {
+    const response = await fetch(`${BASE_URL}/user/init`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${accessToken}`,
