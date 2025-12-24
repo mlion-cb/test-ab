@@ -14,7 +14,6 @@ import { createPublicClient, http, parseUnits } from 'viem';
 import { base } from 'viem/chains';
 
 const USDC_BASE_MAINNET = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
-const SERVER_WALLET_ADDRESS = process.env.SERVER_WALLET_ADDRESS!;
 const ADMIN_WALLET_ADDRESS = process.env.ADMIN_WALLET_ADDRESS!;
 
 interface SweepParams {
@@ -131,9 +130,22 @@ async function getValidSpendPermission(userAddress: string): Promise<any | null>
 
   console.log('📋 [SWEEP] Found', allPermissions.spendPermissions.length, 'total permissions');
 
+  // Get server wallet address dynamically
+  const { getServerWalletAddress, initializeServerWallet } = await import('./serverWallet.js');
+
+  let serverWalletAddress: string;
+  try {
+    serverWalletAddress = getServerWalletAddress();
+  } catch {
+    // Initialize if not already initialized
+    serverWalletAddress = await initializeServerWallet();
+  }
+
+  console.log('🔐 [SWEEP] Looking for SP with server wallet spender:', serverWalletAddress);
+
   // Find permission matching our criteria
   const validPermission = allPermissions.spendPermissions.find((p: any) => {
-    const isCorrectSpender = p.permission.spender.toLowerCase() === SERVER_WALLET_ADDRESS.toLowerCase();
+    const isCorrectSpender = p.permission.spender.toLowerCase() === serverWalletAddress.toLowerCase();
     const isCorrectToken = p.permission.token.toLowerCase() === USDC_BASE_MAINNET.toLowerCase();
     const isNotRevoked = !p.revoked;
 
@@ -156,10 +168,18 @@ async function getValidSpendPermission(userAddress: string): Promise<any | null>
  * Use spend permission to sweep USDC to server wallet
  */
 async function useSpendPermissionToSweep(spendPermission: any, amount: bigint): Promise<any> {
-  // Import server wallet
-  const { getServerWallet } = await import('./serverWallet.js');
-  const serverWallet = getServerWallet();
+  // Import and initialize server wallet (lazy loading)
+  const { getServerWallet, initializeServerWallet } = await import('./serverWallet.js');
 
+  try {
+    const serverWallet = getServerWallet();
+  } catch {
+    // Wallet not initialized yet - initialize it now
+    console.log('🔄 [SWEEP] Initializing server wallet...');
+    await initializeServerWallet();
+  }
+
+  const serverWallet = getServerWallet();
   console.log('🔄 [SWEEP] Using server wallet to execute spend permission...');
 
   const sweepResult = await serverWallet.useSpendPermission({
@@ -175,7 +195,14 @@ async function useSpendPermissionToSweep(spendPermission: any, amount: bigint): 
  * Wait for user operation to be confirmed
  */
 async function waitForUserOperation(result: any): Promise<void> {
-  const { getServerWallet } = await import('./serverWallet.js');
+  const { getServerWallet, initializeServerWallet } = await import('./serverWallet.js');
+
+  try {
+    const serverWallet = getServerWallet();
+  } catch {
+    await initializeServerWallet();
+  }
+
   const serverWallet = getServerWallet();
 
   console.log('⏳ [SWEEP] Waiting for user operation:', result.userOpHash);
@@ -192,7 +219,14 @@ async function waitForUserOperation(result: any): Promise<void> {
  * Transfer USDC from server wallet to admin address
  */
 async function transferToAdmin(amount: bigint): Promise<any> {
-  const { getServerWallet } = await import('./serverWallet.js');
+  const { getServerWallet, initializeServerWallet } = await import('./serverWallet.js');
+
+  try {
+    const serverWallet = getServerWallet();
+  } catch {
+    await initializeServerWallet();
+  }
+
   const serverWallet = getServerWallet();
 
   console.log('🔄 [SWEEP] Preparing transfer to admin address...');

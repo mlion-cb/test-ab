@@ -135,7 +135,7 @@ export default function Index() {
   const [userHasWalletAndSP, setUserHasWalletAndSP] = useState<boolean | null>(null); // null = not checked, true = has both, false = needs initialization
   const [pendingFormData, setPendingFormData] = useState<any>(null); // Store form data while waiting for consent
 
-  
+
 
 
   // Check for test session first
@@ -515,16 +515,37 @@ export default function Index() {
     try {
       setIsCreatingSpendPermission(true);
 
-      // For partners: This is where they would call useAuthenticateWithJWT()
+      // For partners with existing auth: Configure CDP with custom JWT provider
       // ================================================================
+      // In _layout.tsx or App config:
+      // <CdpProvider
+      //   config={{
+      //     projectId: 'your-project-id',
+      //     customAuth: {
+      //       getJwt: async () => {
+      //         // Return JWT from YOUR auth system
+      //         const token = await yourAuthService.getAccessToken();
+      //         return token; // or undefined if not authenticated
+      //       }
+      //     },
+      //     ethereum: {
+      //       createOnLogin: 'smart',
+      //       enableSpendPermissions: true,
+      //     }
+      //   }}
+      // >
+      //
+      // Then after user accepts consent, authenticate with CDP:
       // import { useAuthenticateWithJWT } from '@coinbase/cdp-hooks';
       //
-      // const jwt = await getPartnerJWT(userId); // Partner generates JWT
-      // const { isAuthenticated } = useAuthenticateWithJWT(jwt);
+      // const { authenticateWithJWT, isLoading } = useAuthenticateWithJWT();
       //
-      // if (!isAuthenticated) {
-      //   throw new Error('Failed to authenticate user');
-      // }
+      // // This creates/loads the embedded wallet automatically
+      // await authenticateWithJWT();
+      //
+      // // Wallet is now available via CDP hooks
+      // const { currentUser } = useCurrentUser();
+      // const smartAccountAddress = currentUser?.evmSmartAccounts?.[0];
       // ================================================================
 
       // Get Smart Account address (must be Smart Account, not EOA)
@@ -534,14 +555,36 @@ export default function Index() {
         throw new Error('No Smart Account found. Please ensure your account has spend permissions enabled.');
       }
 
+      // Fetch server wallet address (initializes wallet if needed)
+      // This is when the server wallet is created - ONLY when user gives consent!
+      console.log('🔄 [CONSENT] Fetching server wallet address...');
+      const accessToken = await getAccessToken();
+      if (!accessToken) {
+        throw new Error('No access token available');
+      }
+
+      const backendUrl = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:3000';
+      const response = await fetch(`${backendUrl}/server-wallet/address`, {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch server wallet address');
+      }
+
+      const walletData = await response.json();
+      const fetchedServerWalletAddress = walletData.address;
+
+      console.log('✅ [CONSENT] Server wallet ready:', fetchedServerWalletAddress);
       console.log('💳 [CONSENT] Creating spend permission for Smart Account:', smartAccountAddress);
+      console.log('🔐 [CONSENT] Spender (server wallet):', fetchedServerWalletAddress);
 
       // Create spend permission: Base mainnet USDC, 10,000 USDC per week
       // Spender = Server's Smart Account (not admin address)
       // Using convenient "usdc" shortcut (only works on Base/Base Sepolia)
       const result = await createSpendPermission({
         network: 'base', // Base mainnet
-        spender: process.env.EXPO_PUBLIC_SERVER_WALLET_ADDRESS! as `0x${string}`, // Server wallet (spender)
+        spender: fetchedServerWalletAddress as `0x${string}`, // Server wallet (spender)
         token: 'usdc', // Base mainnet USDC (0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913)
         allowance: BigInt(10000 * 1_000_000), // 10,000 USDC (6 decimals)
         periodInDays: 7, // Weekly limit

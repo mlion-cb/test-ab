@@ -9,7 +9,12 @@
  * 2. Webhook uses this wallet to sweep funds (useSpendPermission)
  * 3. This wallet transfers to admin address (sendUserOperation)
  *
- * Note: Store SERVER_WALLET_ADDRESS in .env after first creation
+ * Implementation:
+ * - Uses CDP's name feature for persistence (no env variables needed!)
+ * - Named owner: "server-spender-wallet-v2-owner"
+ * - Named smart account: "server-spender-wallet-v2"
+ * - Lazy-loaded on first use (doesn't block other endpoints)
+ * - getOrCreateAccount/getOrCreateSmartAccount handle both creation and loading
  */
 
 import { CdpClient } from '@coinbase/cdp-sdk';

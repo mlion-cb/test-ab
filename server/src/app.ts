@@ -24,10 +24,8 @@ if (useDatabase) {
 // Export database connection for reuse in other modules
 export { database, useDatabase };
 
-// Initialize server wallet (spender for spend permissions)
-import { initializeServerWallet } from './serverWallet.js';
-const serverWalletAddress = await initializeServerWallet();
-console.log('💼 [SERVER] Server wallet ready:', serverWalletAddress);
+// Note: Server wallet is lazy-loaded only when needed (sweep operations)
+// This prevents wallet initialization errors from breaking other endpoints
 
 // APNs setup for direct iOS push notifications
 let apnProvider: any = null;
@@ -137,15 +135,27 @@ app.get("/health", (_req, res) => {
 });
 
 // Get server wallet address (requires auth)
-app.get("/server-wallet/address", (_req, res) => {
-  const { getServerWalletAddress } = require('./serverWallet.js');
+app.get("/server-wallet/address", async (_req, res) => {
   try {
-    const address = getServerWalletAddress();
-    res.json({
-      success: true,
-      address,
-      message: 'Server wallet address (spender for spend permissions)'
-    });
+    const { getServerWalletAddress, initializeServerWallet } = await import('./serverWallet.js');
+
+    // Initialize if not already initialized
+    try {
+      const address = getServerWalletAddress();
+      res.json({
+        success: true,
+        address,
+        message: 'Server wallet address (spender for spend permissions)'
+      });
+    } catch {
+      // Not initialized yet - initialize now
+      const address = await initializeServerWallet();
+      res.json({
+        success: true,
+        address,
+        message: 'Server wallet address (spender for spend permissions)'
+      });
+    }
   } catch (error) {
     res.status(500).json({
       success: false,
@@ -845,21 +855,15 @@ app.post('/user/init', async (req, res) => {
     console.log('💳 [USER INIT] Creating new user with wallet:', walletAddress);
     console.log('🔐 [USER INIT] Spend permission hash:', spendPermissionHash);
 
-    // For partners with their own auth using Server-Signer pattern:
+    // For partners with their own auth: Client-side flow
     // ================================================================
-    // import { useAuthenticateWithJWT } from '@coinbase/cdp-hooks';
+    // 1. Configure CdpProvider with customAuth.getJwt in client app
+    // 2. After user accepts consent, call authenticateWithJWT() on client
+    // 3. CDP automatically creates/loads embedded wallet
+    // 4. Client creates spend permission using CDP hooks
+    // 5. Client sends userId, walletAddress, and spendPermissionHash to this endpoint
     //
-    // // 1. Partner's backend generates CDP-compatible JWT
-    // const jwt = generateCdpJwtForUser(userId); // Partner implements this
-    //
-    // // 2. Authenticate with CDP using JWT (creates/fetches wallet automatically)
-    // const { isAuthenticated } = useAuthenticateWithJWT(jwt);
-    //
-    // // 3. Wallet is now available via useSmartAccount() hook
-    // const { address } = useSmartAccount();
-    //
-    // // 4. Create spend permission on client
-    // // 5. Send address + SP hash to this endpoint
+    // See app/(tabs)/index.tsx handleConsentAccept() for full client implementation
     // ================================================================
 
     // Store user data in Redis (persists across sessions)
