@@ -14,8 +14,7 @@
 
 import { CdpClient } from '@coinbase/cdp-sdk';
 
-const SERVER_WALLET_NAME = 'server-spender-wallet'; // Named wallet for persistence
-const STORED_ADDRESS = process.env.SERVER_WALLET_ADDRESS; // Address from .env
+const SERVER_WALLET_NAME = 'server-spender-wallet-v2'; // Named wallet for persistence (v2 to avoid conflicts with old setup)
 
 let serverWallet: any = null;
 let serverWalletAddress: string | null = null;
@@ -79,32 +78,12 @@ export function getServerWalletAddress(): string {
 }
 
 /**
- * Load server wallet from CDP by address
- * No longer needed as initializeServerWallet() handles both create and load
+ * Load server wallet - calls initializeServerWallet
+ * No longer needed as standalone function
  */
 export async function loadServerWallet(): Promise<any> {
-  if (!STORED_ADDRESS) {
-    throw new Error('SERVER_WALLET_ADDRESS not set in environment');
+  if (!serverWallet) {
+    await initializeServerWallet();
   }
-
-  try {
-    console.log('🔄 [SERVER WALLET] Loading wallet by address:', STORED_ADDRESS);
-
-    const cdp = new CdpClient();
-
-    // Fetch the existing smart account by address
-    const smartAccount = await cdp.evm.getSmartAccount({
-      address: STORED_ADDRESS as `0x${string}`
-    });
-
-    console.log('✅ [SERVER WALLET] Wallet loaded successfully:', smartAccount.address);
-
-    serverWallet = smartAccount;
-    serverWalletAddress = smartAccount.address;
-    return smartAccount;
-
-  } catch (error) {
-    console.error('❌ [SERVER WALLET] Error loading server wallet:', error);
-    throw error;
-  }
+  return serverWallet;
 }
