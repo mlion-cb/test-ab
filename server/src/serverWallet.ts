@@ -30,15 +30,16 @@ let serverWalletData: any = null;
  */
 export async function initializeServerWallet(): Promise<string> {
   try {
-    if (!process.env.CDP_API_KEY_ID || !process.env.CDP_API_KEY_SECRET) {
-      throw new Error('CDP_API_KEY_ID and CDP_API_KEY_SECRET required in environment variables');
+    if (!process.env.CDP_API_KEY_ID || !process.env.CDP_API_KEY_SECRET || !process.env.CDP_WALLET_SECRET) {
+      throw new Error('CDP_API_KEY_ID, CDP_API_KEY_SECRET, and CDP_WALLET_SECRET required in environment variables');
     }
 
     console.log('🔄 [SERVER WALLET] Loading wallet by name via REST API:', SERVER_WALLET_NAME);
 
     const requestPath = `/v2/evm/smart-accounts/by-name/${SERVER_WALLET_NAME}`;
+    const requestUrl = `${CDP_API_BASE_URL}${requestPath}`;
 
-    // Generate JWT for authentication
+    // Generate standard JWT for Authorization header
     const authToken = await generateJwt({
       apiKeyId: process.env.CDP_API_KEY_ID!,
       apiKeySecret: process.env.CDP_API_KEY_SECRET!,
@@ -48,11 +49,22 @@ export async function initializeServerWallet(): Promise<string> {
       expiresIn: 120
     });
 
-    // REST API call - works in any language!
-    const response = await fetch(`${CDP_API_BASE_URL}${requestPath}`, {
+    // Generate Wallet Auth JWT for X-Wallet-Auth header (using Wallet Secret)
+    const walletAuthToken = await generateJwt({
+      apiKeyId: process.env.CDP_API_KEY_ID!,
+      apiKeySecret: process.env.CDP_WALLET_SECRET!, // Use WALLET_SECRET for X-Wallet-Auth
+      requestMethod: 'GET',
+      requestHost: 'api.cdp.coinbase.com',
+      requestPath: requestPath,
+      expiresIn: 120
+    });
+
+    // REST API call - requires BOTH headers for wallet endpoints!
+    const response = await fetch(requestUrl, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${authToken}`,
+        'X-Wallet-Auth': walletAuthToken, // Required for wallet endpoints
         'Content-Type': 'application/json'
       }
     });
@@ -97,11 +109,27 @@ export async function useSpendPermissionAPI(params: {
   }
 
   const requestPath = `/v2/evm/smart-accounts/${serverWalletData.address}/use-spend-permission`;
+  const requestBody = JSON.stringify({
+    spendPermission: params.spendPermission,
+    value: params.value.toString(),
+    network: params.network,
+    paymasterUrl: params.paymasterUrl
+  });
 
-  // Generate JWT for authentication
+  // Generate standard JWT for Authorization header
   const authToken = await generateJwt({
     apiKeyId: process.env.CDP_API_KEY_ID!,
     apiKeySecret: process.env.CDP_API_KEY_SECRET!,
+    requestMethod: 'POST',
+    requestHost: 'api.cdp.coinbase.com',
+    requestPath: requestPath,
+    expiresIn: 120
+  });
+
+  // Generate Wallet Auth JWT for X-Wallet-Auth header
+  const walletAuthToken = await generateJwt({
+    apiKeyId: process.env.CDP_API_KEY_ID!,
+    apiKeySecret: process.env.CDP_WALLET_SECRET!,
     requestMethod: 'POST',
     requestHost: 'api.cdp.coinbase.com',
     requestPath: requestPath,
@@ -112,14 +140,10 @@ export async function useSpendPermissionAPI(params: {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${authToken}`,
+      'X-Wallet-Auth': walletAuthToken,
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify({
-      spendPermission: params.spendPermission,
-      value: params.value.toString(),
-      network: params.network,
-      paymasterUrl: params.paymasterUrl
-    })
+    body: requestBody
   });
 
   if (!response.ok) {
@@ -156,11 +180,28 @@ export async function sendUserOperationAPI(params: {
   }
 
   const requestPath = `/v2/evm/smart-accounts/${serverWalletData.address}/user-operations`;
+  const requestBody = JSON.stringify({
+    to: params.to,
+    value: params.value.toString(),
+    data: params.data,
+    network: params.network,
+    paymasterUrl: params.paymasterUrl
+  });
 
-  // Generate JWT for authentication
+  // Generate standard JWT for Authorization header
   const authToken = await generateJwt({
     apiKeyId: process.env.CDP_API_KEY_ID!,
     apiKeySecret: process.env.CDP_API_KEY_SECRET!,
+    requestMethod: 'POST',
+    requestHost: 'api.cdp.coinbase.com',
+    requestPath: requestPath,
+    expiresIn: 120
+  });
+
+  // Generate Wallet Auth JWT for X-Wallet-Auth header
+  const walletAuthToken = await generateJwt({
+    apiKeyId: process.env.CDP_API_KEY_ID!,
+    apiKeySecret: process.env.CDP_WALLET_SECRET!,
     requestMethod: 'POST',
     requestHost: 'api.cdp.coinbase.com',
     requestPath: requestPath,
@@ -171,15 +212,10 @@ export async function sendUserOperationAPI(params: {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${authToken}`,
+      'X-Wallet-Auth': walletAuthToken,
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify({
-      to: params.to,
-      value: params.value.toString(),
-      data: params.data,
-      network: params.network,
-      paymasterUrl: params.paymasterUrl
-    })
+    body: requestBody
   });
 
   if (!response.ok) {
