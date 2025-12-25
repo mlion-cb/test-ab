@@ -24,9 +24,17 @@ export async function initializeServerWallet(): Promise<string> {
 
     const cdp = new CdpClient();
 
-    // Load smart account by name
-    serverWallet = await cdp.evm.getSmartAccountByName({
-      name: SERVER_WALLET_NAME
+    // Get owner account first
+    const ownerAccount = await cdp.evm.getAccount({
+      name: `${SERVER_WALLET_NAME}-owner`
+    });
+
+    console.log('✅ [SERVER WALLET SDK] Owner account loaded:', ownerAccount.address);
+
+    // Load smart account with name and owner
+    serverWallet = await cdp.evm.getSmartAccount({
+      name: SERVER_WALLET_NAME,
+      owner: ownerAccount
     });
 
     console.log('✅ [SERVER WALLET SDK] Server wallet loaded:', serverWallet.address);
