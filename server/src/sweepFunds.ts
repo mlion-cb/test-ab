@@ -13,7 +13,7 @@ import { CdpClient } from '@coinbase/cdp-sdk';
 import { createPublicClient, http, parseUnits } from 'viem';
 import { base } from 'viem/chains';
 
-const USDC_ADDRESS = '0x036CbD53842c5426634e7929541eC2318f3dCF7e'; // Base Sepolia USDC
+const USDC_ADDRESS = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'; // Base mainnet USDC
 const ADMIN_WALLET_ADDRESS = process.env.ADMIN_WALLET_ADDRESS!;
 
 interface SweepParams {
@@ -31,13 +31,13 @@ interface SweepParams {
 export async function executeSweep(params: SweepParams): Promise<void> {
   const { txHash, destinationAddress, network, amount, currency, partnerUserRef } = params;
 
-  // Only sweep on Base Sepolia for USDC
-  if (network.toLowerCase() !== 'base-sepolia' || currency.toUpperCase() !== 'USDC') {
-    console.log('ℹ️ [SWEEP] Skipping sweep - not Base Sepolia USDC:', { network, currency });
+  // Only sweep on Base for USDC
+  if (network.toLowerCase() !== 'base' || currency.toUpperCase() !== 'USDC') {
+    console.log('ℹ️ [SWEEP] Skipping sweep - not Base USDC:', { network, currency });
     return;
   }
 
-  console.log('💰 [SWEEP] Using USDC contract:', USDC_ADDRESS, 'on base-sepolia');
+  console.log('💰 [SWEEP] Using USDC contract:', USDC_ADDRESS, 'on base');
 
   try {
     // Step 1: Wait for transaction confirmation
@@ -98,14 +98,6 @@ export async function executeSweep(params: SweepParams): Promise<void> {
  * Wait for onramp transaction to be confirmed on-chain
  */
 async function waitForTransactionConfirmation(txHash: string, network: string): Promise<void> {
-  // Skip transaction confirmation for Sepolia testing
-  if (network.toLowerCase() === 'base-sepolia') {
-    console.log('⏭️  [SWEEP] Skipping transaction confirmation for Sepolia');
-    console.log('✅ [SWEEP] Transaction assumed confirmed:', txHash);
-    return;
-  }
-
-  // For mainnet, wait for actual confirmation
   const publicClient = createPublicClient({
     chain: base,
     transport: http()
@@ -200,7 +192,7 @@ async function useSpendPermissionToSweep(spendPermission: any, amount: bigint, n
   const sweepResult = await serverWallet.useSpendPermission({
     spendPermission: spendPermission.permission,
     value: amount,
-    network: 'base-sepolia',
+    network: 'base',
     paymasterUrl: 'https://api.developer.coinbase.com/rpc/v1/base/6DmPQTz8egifUIDdGm3wl4aoXAdYWw5H'
   });
 
@@ -254,7 +246,7 @@ async function transferToAdmin(amount: bigint, network: string): Promise<any> {
     to: USDC_ADDRESS as `0x${string}`, // Send to USDC contract
     value: 0n, // No ETH, just token transfer
     data: encodeUSDCTransfer(ADMIN_WALLET_ADDRESS as `0x${string}`, amount),
-    network: 'base-sepolia',
+    network: 'base',
     paymasterUrl: 'https://api.developer.coinbase.com/rpc/v1/base/6DmPQTz8egifUIDdGm3wl4aoXAdYWw5H'
   });
 

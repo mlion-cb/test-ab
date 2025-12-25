@@ -738,9 +738,9 @@ export default function WalletScreen() {
 
       // Use CDP hook to create spend permission on client side (same as consent flow)
       const result = await createSpendPermission({
-        network: 'base-sepolia',
+        network: 'base',
         spender: serverWalletAddress as `0x${string}`,
-        token: '0x036CbD53842c5426634e7929541eC2318f3dCF7e' as `0x${string}`, // Sepolia USDC
+        token: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913' as `0x${string}`, // Base mainnet USDC
         allowance: BigInt(10000 * 1_000_000), // 10,000 USDC (6 decimals)
         periodInDays: 7,
         useCdpPaymaster: true
@@ -792,7 +792,7 @@ export default function WalletScreen() {
         body: JSON.stringify({
           destinationAddress: smartAccountAddress,
           amount: '0.500000',
-          network: 'base-sepolia'
+          network: 'base'
         })
       });
 
