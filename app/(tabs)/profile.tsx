@@ -743,8 +743,8 @@ export default function WalletScreen() {
         },
         body: JSON.stringify({
           destinationAddress: smartAccountAddress,
-          amount: '0.500000', // 0.5 USDC
-          network: 'base' // Base mainnet
+          amount: '0.500000',
+          network: 'base-sepolia'
         })
       });
 

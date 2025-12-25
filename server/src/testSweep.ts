@@ -22,7 +22,7 @@ export async function executeTestSweep(params: TestSweepParams): Promise<{ succe
     destinationAddress,
     amount,
     network = 'base-sepolia',
-    txHash = '0xf7aa005cb079df18ab6a91d7b5dc69bedbd30a31e4c9e5de11a57caa843950ea' // Real confirmed Base transaction
+    txHash = '0x7d1e6e5d5ea1b4a3b614aef55a8f6d73078c0267215fc8ff0920ac45c07b8218' // Real confirmed Base Sepolia transaction
   } = params;
 
   try {
