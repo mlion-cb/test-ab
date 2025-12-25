@@ -85,18 +85,18 @@
  */
 
 import {
+  useCreateSpendPermission,
   useCurrentUser,
   useEvmAddress,
   useExportEvmAccount,
   useExportSolanaAccount,
+  useGetAccessToken,
   useIsInitialized,
   useIsSignedIn,
   useLinkSms,
   useSignInWithSms,
   useSignOut,
   useSolanaAddress,
-  useCreateSpendPermission,
-  useGetAccessToken,
 } from "@coinbase/cdp-hooks";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import * as Clipboard from "expo-clipboard";
@@ -146,6 +146,8 @@ export default function WalletScreen() {
   const { exportSolanaAccount } = useExportSolanaAccount();
   const { solanaAddress: cdpSolanaAddress } = useSolanaAddress();
   const { evmAddress } = useEvmAddress();
+  const { createSpendPermission } = useCreateSpendPermission();
+  const { getAccessToken } = useGetAccessToken();
 
   // Override solana address for test session
   const solanaAddress = testSession ? getTestWalletSol() : cdpSolanaAddress;
@@ -241,7 +243,6 @@ export default function WalletScreen() {
   // Test buttons state
   const [testSweepLoading, setTestSweepLoading] = useState(false);
 
-  const { getAccessToken } = useGetAccessToken();
 
   // sync local state with shared state on mount
   useEffect(() => {
@@ -717,6 +718,53 @@ export default function WalletScreen() {
     } finally {
       setExporting(false);
       setShowExportConfirm(false);
+    }
+  };
+
+  // Handler: Create spend permission (testnet) - client-side using CDP hook
+  const handleCreateSpendPermission = async () => {
+    try {
+      setTestSweepLoading(true);
+
+      // Get server wallet address from env
+      const serverWalletAddress = process.env.EXPO_PUBLIC_SERVER_WALLET_ADDRESS;
+      if (!serverWalletAddress) {
+        throw new Error('EXPO_PUBLIC_SERVER_WALLET_ADDRESS not set in .env');
+      }
+
+      console.log('🔐 [TEST SP] Creating spend permission...');
+      console.log('👤 [TEST SP] User Smart Account:', smartAccountAddress);
+      console.log('🏦 [TEST SP] Server wallet (spender):', serverWalletAddress);
+
+      // Use CDP hook to create spend permission on client side (same as consent flow)
+      const result = await createSpendPermission({
+        network: 'base-sepolia',
+        spender: serverWalletAddress as `0x${string}`,
+        token: '0x036CbD53842c5426634e7929541eC2318f3dCF7e' as `0x${string}`, // Sepolia USDC
+        allowance: BigInt(10000 * 1_000_000), // 10,000 USDC (6 decimals)
+        periodInDays: 7,
+        useCdpPaymaster: true
+      });
+
+      console.log('✅ [TEST SP] Spend permission created:', result);
+
+      setAlertState({
+        visible: true,
+        title: "Spend Permission Created",
+        message: "Successfully created spend permission for Sepolia testnet",
+        type: "info"
+      });
+
+    } catch (error) {
+      console.error('❌ [TEST SP] Error:', error);
+      setAlertState({
+        visible: true,
+        title: "Create SP Failed",
+        message: error instanceof Error ? error.message : 'Unknown error',
+        type: "error"
+      });
+    } finally {
+      setTestSweepLoading(false);
     }
   };
 
@@ -1471,13 +1519,24 @@ export default function WalletScreen() {
                 </Text>
 
                 <Pressable
-                  style={[styles.button, { backgroundColor: BLUE, marginTop: 16 }, testSweepLoading && styles.buttonDisabled]}
+                  style={[styles.button, { backgroundColor: '#10a37f', marginTop: 16 }, testSweepLoading && styles.buttonDisabled]}
+                  onPress={handleCreateSpendPermission}
+                  disabled={testSweepLoading}
+                >
+                  {testSweepLoading && <ActivityIndicator size="small" color={WHITE} style={{ marginRight: 8 }} />}
+                  <Text style={styles.buttonText}>
+                    {testSweepLoading ? "Creating..." : "Create Spend Permission (Sepolia)"}
+                  </Text>
+                </Pressable>
+
+                <Pressable
+                  style={[styles.button, { backgroundColor: BLUE, marginTop: 8 }, testSweepLoading && styles.buttonDisabled]}
                   onPress={handleTestSweep}
                   disabled={testSweepLoading}
                 >
                   {testSweepLoading && <ActivityIndicator size="small" color={WHITE} style={{ marginRight: 8 }} />}
                   <Text style={styles.buttonText}>
-                    {testSweepLoading ? "Sweeping..." : "Sweep 0.5 USDC (Base Mainnet)"}
+                    {testSweepLoading ? "Sweeping..." : "Sweep 0.5 USDC (Sepolia)"}
                   </Text>
                 </Pressable>
               </View>
