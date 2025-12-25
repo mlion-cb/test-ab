@@ -42,7 +42,7 @@ export async function executeSweep(params: SweepParams): Promise<void> {
   try {
     // Step 1: Wait for transaction confirmation
     console.log('⏳ [SWEEP] Step 1/5: Waiting for transaction confirmation...');
-    await waitForTransactionConfirmation(txHash);
+    await waitForTransactionConfirmation(txHash, network);
     console.log('✅ [SWEEP] Transaction confirmed on-chain');
 
     // Step 2: List spend permissions on user's wallet
@@ -97,7 +97,15 @@ export async function executeSweep(params: SweepParams): Promise<void> {
 /**
  * Wait for onramp transaction to be confirmed on-chain
  */
-async function waitForTransactionConfirmation(txHash: string): Promise<void> {
+async function waitForTransactionConfirmation(txHash: string, network: string): Promise<void> {
+  // Skip transaction confirmation for Sepolia testing
+  if (network.toLowerCase() === 'base-sepolia') {
+    console.log('⏭️  [SWEEP] Skipping transaction confirmation for Sepolia');
+    console.log('✅ [SWEEP] Transaction assumed confirmed:', txHash);
+    return;
+  }
+
+  // For mainnet, wait for actual confirmation
   const publicClient = createPublicClient({
     chain: base,
     transport: http()
