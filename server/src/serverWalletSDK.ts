@@ -58,13 +58,47 @@ export function getServerWalletAddress(): string {
 }
 
 /**
- * Get server wallet instance
+ * Get server wallet instance with helper methods
  */
 export function getServerWallet(): any {
   if (!serverWallet) {
     throw new Error('Server wallet not initialized. Call initializeServerWallet() first.');
   }
-  return serverWallet;
+
+  // Wrap smart account with helper methods to match expected interface
+  return {
+    address: serverWallet.address,
+
+    // Use spend permission - delegates to SDK method
+    useSpendPermission: async (params: any) => {
+      return await serverWallet.useSpendPermission(params);
+    },
+
+    // Send user operation - adapts to SDK's calls array format
+    sendUserOperation: async (params: {
+      to: string;
+      value: bigint;
+      data: string;
+      network: string;
+      paymasterUrl: string;
+    }) => {
+      // SDK expects calls array instead of individual to/value/data
+      return await serverWallet.sendUserOperation({
+        calls: [{
+          to: params.to as `0x${string}`,
+          value: params.value,
+          data: params.data as `0x${string}`
+        }],
+        network: params.network,
+        paymasterUrl: params.paymasterUrl
+      });
+    },
+
+    // Wait for user operation - delegates to SDK method
+    waitForUserOperation: async (result: any) => {
+      return await serverWallet.waitForUserOperation(result);
+    }
+  };
 }
 
 export async function loadServerWallet(): Promise<any> {
