@@ -269,6 +269,10 @@ async function transferToAdmin(amount: bigint, network: string): Promise<any> {
   console.log('💰 [SWEEP] Amount:', amount.toString());
   console.log('📍 [SWEEP] Destination:', ADMIN_WALLET_ADDRESS);
 
+  // Add delay to allow balance to settle after sweep
+  console.log('⏳ [SWEEP] Waiting 5 seconds for balance to be queryable...');
+  await new Promise(resolve => setTimeout(resolve, 5000));
+
   // Send USDC to admin address
   const transferResult = await serverWallet.sendUserOperation({
     to: USDC_ADDRESS as `0x${string}`, // Send to USDC contract
