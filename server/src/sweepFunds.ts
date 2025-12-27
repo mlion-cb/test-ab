@@ -123,6 +123,33 @@ async function waitForTransactionConfirmation(txHash: string, network: string): 
  * Validates: spender, token (USDC), not revoked
  */
 async function getValidSpendPermission(userAddress: string, network: string = 'base'): Promise<any | null> {
+  // TEMPORARY: Use specific spend permission provided by engineer for testing
+  const HARDCODED_TEST_SP = {
+    "createdAt": "2025-12-24T04:47:33.878Z",
+    "network": "base",
+    "permission": {
+      "account": "0x9ac3188de7b2f69af9a107d4b278e794606781a8",
+      "allowance": "10000000000",
+      "end": "281474976710655",
+      "extraData": "0x",
+      "period": "604800",
+      "salt": "48669354071075928928055244610114470151352860184320155939446397737931924134939",
+      "spender": "0xf6733167edc02663c562f96612dcf9d98f2c0cdd",
+      "start": "1766551652",
+      "token": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"
+    },
+    "permissionHash": "0x7fb271efb9caac72878c95929911c48e57a063a36fae75e06e0ed150ae991f43",
+    "revoked": false
+  };
+
+  console.log('🔐 [SWEEP] Using hardcoded test spend permission');
+  console.log('📋 [SWEEP] Permission hash:', HARDCODED_TEST_SP.permissionHash);
+  console.log('📋 [SWEEP] Start time:', HARDCODED_TEST_SP.permission.start);
+  console.log('📋 [SWEEP] Current time:', Math.floor(Date.now() / 1000));
+
+  return HARDCODED_TEST_SP;
+
+  /* COMMENTED OUT - Using hardcoded SP for now
   const cdp = new CdpClient();
 
   // List all spend permissions on user's wallet
@@ -164,6 +191,7 @@ async function getValidSpendPermission(userAddress: string, network: string = 'b
   });
 
   return validPermission || null;
+  */
 }
 
 /**
