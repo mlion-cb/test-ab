@@ -218,10 +218,15 @@ async function getAllValidSpendPermissions(userAddress: string, network: string 
     return isCorrectSpender && isCorrectToken && isNotRevoked && isActive;
   });
 
+  // Sort by start time descending (most recent first)
+  validPermissions.sort((a: any, b: any) => {
+    return parseInt(b.permission.start) - parseInt(a.permission.start);
+  });
+
   if (validPermissions.length > 0) {
-    console.log(`✅ [SWEEP] FOUND ${validPermissions.length} VALID PERMISSION(S):`);
+    console.log(`✅ [SWEEP] FOUND ${validPermissions.length} VALID PERMISSION(S) (sorted by most recent):`);
     validPermissions.forEach((p: any, index: number) => {
-      console.log(`   ${index + 1}. ${p.permissionHash}`);
+      console.log(`   ${index + 1}. ${p.permissionHash} (start: ${p.permission.start})`);
     });
   } else {
     console.log('❌ [SWEEP] NO VALID PERMISSIONS FOUND');
