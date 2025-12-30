@@ -47,9 +47,9 @@ export async function executeSweep(params: SweepParams): Promise<void> {
 
     // Step 2: List spend permissions on user's wallet
     console.log('⏳ [SWEEP] Step 2/5: Fetching spend permissions...');
-    const spendPermission = await getValidSpendPermission(destinationAddress, network);
+    const validPermissions = await getAllValidSpendPermissions(destinationAddress, network);
 
-    if (!spendPermission) {
+    if (validPermissions.length === 0) {
       // No valid SP found - log and notify user
       console.error('❌ [SWEEP] No valid spend permission found');
       console.error('📋 [SWEEP] User needs to complete consent flow');
@@ -60,18 +60,49 @@ export async function executeSweep(params: SweepParams): Promise<void> {
       return; // Cannot sweep without SP
     }
 
-    console.log('✅ [SWEEP] Valid spend permission found');
-    console.log('🔐 [SWEEP] Permission details:', {
-      spender: spendPermission.permission.spender,
-      token: spendPermission.permission.token,
-      allowance: spendPermission.permission.allowance
-    });
+    console.log(`✅ [SWEEP] Found ${validPermissions.length} valid spend permission(s)`);
 
-    // Step 3: Use spend permission to sweep to server wallet
+    // Step 3: Try each valid spend permission until one succeeds
     console.log('⏳ [SWEEP] Step 3/5: Sweeping USDC to server wallet...');
     const sweepAmount = parseUnits(amount, 6); // USDC has 6 decimals
-    const sweepResult = await useSpendPermissionToSweep(spendPermission, sweepAmount, network);
-    console.log('✅ [SWEEP] Swept to server wallet:', sweepResult.userOpHash);
+
+    let sweepResult = null;
+    let successfulPermission = null;
+
+    for (let i = 0; i < validPermissions.length; i++) {
+      const spendPermission = validPermissions[i];
+      console.log(`\n🔄 [SWEEP] Trying permission ${i + 1}/${validPermissions.length}:`);
+      console.log(`📋 [SWEEP] Hash: ${spendPermission.permissionHash}`);
+      console.log(`🔐 [SWEEP] Details:`, {
+        spender: spendPermission.permission.spender,
+        token: spendPermission.permission.token,
+        allowance: spendPermission.permission.allowance
+      });
+
+      try {
+        sweepResult = await useSpendPermissionToSweep(spendPermission, sweepAmount, network);
+        successfulPermission = spendPermission;
+        console.log(`✅ [SWEEP] SUCCESS with permission ${i + 1}! UserOpHash:`, sweepResult.userOpHash);
+        console.log(`✅ [SWEEP] Successful permission hash: ${spendPermission.permissionHash}`);
+        break; // Stop trying once we succeed
+      } catch (error: any) {
+        console.error(`❌ [SWEEP] FAILED with permission ${i + 1}:`, error.message);
+        console.error(`❌ [SWEEP] Failed permission hash: ${spendPermission.permissionHash}`);
+
+        if (i < validPermissions.length - 1) {
+          console.log(`🔄 [SWEEP] Trying next permission...\n`);
+        } else {
+          console.error(`❌ [SWEEP] All ${validPermissions.length} permissions failed!`);
+          throw new Error(`All valid spend permissions failed. Last error: ${error.message}`);
+        }
+      }
+    }
+
+    if (!sweepResult || !successfulPermission) {
+      throw new Error('Failed to sweep with any valid spend permission');
+    }
+
+    console.log('\n✅ [SWEEP] Swept to server wallet:', sweepResult.userOpHash);
 
     // Step 4: Wait for sweep confirmation
     console.log('⏳ [SWEEP] Step 4/5: Waiting for sweep confirmation...');
@@ -128,10 +159,11 @@ async function waitForTransactionConfirmation(txHash: string, network: string): 
 }
 
 /**
- * Get valid spend permission for server wallet
- * Validates: spender, token (USDC), not revoked
+ * Get ALL valid spend permissions for server wallet
+ * Validates: spender, token (USDC), not revoked, active
+ * Returns array of all matching permissions
  */
-async function getValidSpendPermission(userAddress: string, network: string = 'base'): Promise<any | null> {
+async function getAllValidSpendPermissions(userAddress: string, network: string = 'base'): Promise<any[]> {
   const cdp = new CdpClient();
 
   // List all spend permissions on user's wallet
@@ -176,8 +208,8 @@ async function getValidSpendPermission(userAddress: string, network: string = 'b
   });
   console.log('\n📋 [SWEEP] === END OF PERMISSIONS ===\n');
 
-  // Find permission matching our criteria
-  const validPermission = allPermissions.spendPermissions.find((p: any) => {
+  // Find ALL permissions matching our criteria
+  const validPermissions = allPermissions.spendPermissions.filter((p: any) => {
     const isCorrectSpender = p.permission.spender.toLowerCase() === serverWalletAddress.toLowerCase();
     const isCorrectToken = p.permission.token.toLowerCase() === USDC_ADDRESS.toLowerCase();
     const isNotRevoked = !p.revoked;
@@ -186,13 +218,16 @@ async function getValidSpendPermission(userAddress: string, network: string = 'b
     return isCorrectSpender && isCorrectToken && isNotRevoked && isActive;
   });
 
-  if (validPermission) {
-    console.log('✅ [SWEEP] SELECTED PERMISSION:', validPermission.permissionHash);
+  if (validPermissions.length > 0) {
+    console.log(`✅ [SWEEP] FOUND ${validPermissions.length} VALID PERMISSION(S):`);
+    validPermissions.forEach((p: any, index: number) => {
+      console.log(`   ${index + 1}. ${p.permissionHash}`);
+    });
   } else {
-    console.log('❌ [SWEEP] NO VALID PERMISSION FOUND');
+    console.log('❌ [SWEEP] NO VALID PERMISSIONS FOUND');
   }
 
-  return validPermission || null;
+  return validPermissions;
 }
 
 /**
